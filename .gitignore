@@ -3,9 +3,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Installer logs
+# Installer logs & logs
 pip-log.txt
 pip-delete-this-directory.txt
+
+logs/
+.idea/
+
 
 # Environments
 .env
@@ -19,3 +23,5 @@ venv.bak/
 # Config files
 stage_config.ini
 prod_config.ini
+
+

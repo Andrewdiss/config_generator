@@ -6,8 +6,10 @@ import ntpath
 import os
 import re
 import smtplib
+import socket
 import sys
 import torndb
+
 # ToDO: check id 1367!!!!!!!!!!!!!!
 from ConfigParser import SafeConfigParser
 from email.mime.multipart import MIMEMultipart
@@ -48,7 +50,7 @@ def main():
     provider_list = get_data_from_db()
 
     if provider_list:
-        checked_providers = process_providers(provider_list[:10])
+        checked_providers = process_providers(provider_list)
         valid_providers = [row for row in checked_providers if row.get('checked')]
         invalid_providers = [row for row in checked_providers if not row.get('checked')]
 
@@ -127,13 +129,14 @@ def ping_tool(host_name, call_param=None, try_count=2):
         try:
             log.info("==> START PROCESSING name:{}, host:{}".format(provider_data['provider_name'],
                                                                     provider_data['provider_host']))
-            call_command = ('ping', call_param, '1', provider_data['provider_host'])
-            provider_data['checked'] = os.system(' '.join(call_command)) == 0
-            if not provider_data['checked'] and try_count > 0:
-                return ping_tool(provider_data, call_param, try_count-1)
+            ip = socket.gethostbyname(provider_data['provider_host'])
+            provider_data['checked'] = True
+            return provider_data
         except Exception as e:
             log.info("ERROR OCCURRED for host:{host}, \n{err}".format(host=provider_data, err=e))
-        return provider_data
+            provider_data['checked'] = False
+            return provider_data
+
     else:
         try:
             call_command = ('ping', call_param, '1', host_name)
@@ -168,10 +171,15 @@ def process_providers(providers_data):
         for provider in providers_data:
             try:
                 provider['provider_host'] = regex_pattern.search(provider.get('end_point')).group('host')
+                provider['port'] = regex_pattern.search(provider.get('end_point')).group('port')
+                if provider['port'] in [':', '']:
+                    provider['port'] = '80'
             except AttributeError as e:
                 provider['checked'] = False
                 log.info("==> ERROR OCCURRED for provider: {name}, \n {err}".format(name=provider['provider_name'], err=e))
 
+        # toRemove = [el['provider_host'] for el in providers_data]
+        # toRemove2 = [el['port'] for el in providers_data if el['port'] != "80"]
         checked_providers_data = pool.map(ping_tool, providers_data)
         pool.close()
         pool.join()
@@ -196,14 +204,16 @@ def process_providers(providers_data):
         return providers_data
 
 
-def store_data(providers):
+def store_data(providers, curr_version=0):
     """
     Store validated provider configs into the config file
     :param providers: List of sorted/validated (by domain) providers
+    :param curr_version: version of the generated file
     :return: path of the file which was created
     """
     log.info("Storing data into the config files")
     files_path = []
+    version = curr_version + 1
     temp_file_path = os.path.join(os.path.dirname(__file__), 'temp_files')
     timestamp = datetime.datetime.now().strftime("%m-%d_%H")
 
@@ -219,7 +229,7 @@ def store_data(providers):
                     data_buffer.writelines(filled_template)
 
                 tp = Template(buffer_template.getvalue())
-                output = tp.render(version=timestamp, provider_data=data_buffer.getvalue())
+                output = tp.render(version=version, provider_data=data_buffer.getvalue())
 
                 file_name, extension = file_name.split('.')
                 new_file_name = '.'.join([file_name+timestamp, extension])
@@ -349,7 +359,8 @@ def remove_files(path):
     try:
         if os.path.exists(path):
             for trash in os.listdir(path):
-                os.remove(os.path.join(path, trash))
+                if trash != 'blank.txt':
+                    os.remove(os.path.join(path, trash))
     except Exception, err:
         raise Exception("func[remove_file] | failed err[{0}]".format(err))
 
